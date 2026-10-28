@@ -1241,6 +1241,8 @@ window.SITE_DATA = {
      * 其次 raw.githubusercontent.com，再次本机缓存，最后内置数据 ---------- */
     function loadData() {
       return new Promise(function (resolve) {
+        var settled = false;
+        function finish() { if (settled) return; settled = true; resolve(); }
         function localFallback() {
           try {
             var raw = localStorage.getItem(STORE_KEY);
@@ -1254,16 +1256,22 @@ window.SITE_DATA = {
           'https://raw.githubusercontent.com/' + CLOUD.owner + '/' + CLOUD.repo + '/' + CLOUD.branch + '/data.json'
         ];
         function tryUrl(i) {
-          if (i >= urls.length) { localFallback(); resolve(); return; }
+          if (i >= urls.length) { if (!settled) { localFallback(); finish(); } return; }
           fetch(urls[i] + '?t=' + Date.now(), { cache: 'no-store' })
             .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
             .then(function (remote) {
-              if (remote && remote.meta) { data = remote; normalizeData(); persistLocal(); toast('已同步云端最新内容'); resolve(); }
-              else { tryUrl(i + 1); }
+              if (remote && remote.meta) {
+                var late = settled;
+                data = remote; normalizeData(); persistLocal();
+                toast('已同步云端最新内容');
+                finish();
+                if (late) renderAll();
+              } else { tryUrl(i + 1); }
             })
-            .catch(function () { tryUrl(i + 1); });
+            .catch(function () { if (!settled) tryUrl(i + 1); });
         }
-        try { tryUrl(0); } catch (e) { localFallback(); resolve(); }
+        setTimeout(function () { if (settled) return; if (!data) localFallback(); finish(); }, 3000);
+        try { tryUrl(0); } catch (e) { localFallback(); finish(); }
       });
     }
     function persistLocal() { localStorage.setItem(STORE_KEY, JSON.stringify(data)); }
